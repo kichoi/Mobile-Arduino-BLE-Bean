@@ -1,6 +1,9 @@
 package com.k1computing.hellobean;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -22,13 +25,15 @@ import com.punchthrough.bean.sdk.message.DeviceInfo;
 import com.punchthrough.bean.sdk.message.LedColor;
 import com.punchthrough.bean.sdk.message.ScratchBank;
 
+import org.apache.commons.codec.binary.Hex;
+
 import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements BeanDiscoveryListener, BeanListener {
+    final private int REQUEST_CODE_ASK_PERMISSIONS = 123;
     final String TAG = "BlueBean";
-    final List<Bean> beans = new ArrayList<>();
-    Bean bean = null;
+    Bean mBean = null;
     TextView textView =null;
 
     @Override
@@ -48,9 +53,7 @@ public class MainActivity extends AppCompatActivity implements BeanDiscoveryList
         });
 
         textView = (TextView)findViewById(R.id.main_text);
-        textView.setText("Start Bluebean discovery ...");
-        Log.d(TAG,"Start Bluebean discovery ...");
-        BeanManager.getInstance().startDiscovery(this);
+        requestPermissions();
     }
 
     @Override
@@ -90,11 +93,14 @@ public class MainActivity extends AppCompatActivity implements BeanDiscoveryList
     @Override
     public void onBeanDiscovered(Bean bean, int rssi) {
         Log.d(TAG,"A bean is found: "+bean);
-        StringBuffer aBuf= new StringBuffer(textView.getText());
-        aBuf.append("\n");
-        aBuf.append(""+bean.getDevice().getName()+" address: "+bean.getDevice().getAddress());
-        textView.setText(aBuf.toString());
-        beans.add(bean);
+        if(mBean==null){
+            StringBuffer aBuf= new StringBuffer(textView.getText());
+            aBuf.append("\n");
+            aBuf.append(""+bean.getDevice().getName()+" address: "+bean.getDevice().getAddress());
+            textView.setText(aBuf.toString());
+            mBean=bean;
+            mBean.connect(this, this);
+        }
     }
 
     @Override
@@ -103,21 +109,13 @@ public class MainActivity extends AppCompatActivity implements BeanDiscoveryList
         aBuf.append("\n");
         aBuf.append("not more Bluebean found");
         textView.setText(aBuf.toString());
-        for (Bean bean : beans) {
-            Log.d(TAG, "Bean name: "+bean.getDevice().getName());
-            Log.d(TAG, "Bean address: "+bean.getDevice().getAddress());
-         }
-        if(beans.size()>0){
-            bean=beans.get(0);
-            bean.connect(this,this);
-        }
-    }
+     }
 
     // BeanListener Methods
     @Override
     public void onConnected() {
         Log.d(TAG,"connected to Bean!");
-        bean.readDeviceInfo(new Callback<DeviceInfo>() {
+        mBean.readDeviceInfo(new Callback<DeviceInfo>() {
             @Override
             public void onResult(DeviceInfo deviceInfo) {
                 Log.d(TAG,deviceInfo.hardwareVersion());
@@ -127,13 +125,13 @@ public class MainActivity extends AppCompatActivity implements BeanDiscoveryList
         });
 
         LedColor ledColor = LedColor.create(0,0,60);
-        bean.setLed(ledColor);
-        bean.readTemperature(new Callback<Integer>() {
+        mBean.setLed(ledColor);
+        mBean.readTemperature(new Callback<Integer>() {
             @Override
             public void onResult(Integer data){
                 Log.d(TAG, "Temperature: "+data);
                 LedColor ledColor = LedColor.create(0,0,0);
-                bean.setLed(ledColor);
+                mBean.setLed(ledColor);
             }
         });
     }
@@ -148,16 +146,18 @@ public class MainActivity extends AppCompatActivity implements BeanDiscoveryList
         Log.d(TAG,"onDisconnected");
     }
 
+
     @Override
     public void onSerialMessageReceived(byte[] data) {
         Log.d(TAG,"onSerialMessageReceived");
-        Log.d(TAG,"data: "+data);
-    }
+        char[] chars= Hex.encodeHex(data);
+        Log.d(TAG,"data: "+ String.valueOf(chars));
+     }
 
     @Override
     public void onScratchValueChanged(ScratchBank bank, byte[] value) {
         Log.d(TAG,"onScratchValueChanged");
-        Log.d(TAG,"bank: "+bank+"\tvalue: "+value);
+        Log.d(TAG,"bank: "+bank+"\tvalue: "+ String.valueOf(Hex.encodeHex(value)));
     }
 
     @Override
@@ -165,4 +165,40 @@ public class MainActivity extends AppCompatActivity implements BeanDiscoveryList
         Log.d(TAG,"onError");
         Log.d(TAG,"error: "+error);
     }
+
+    @Override
+    public void onReadRemoteRssi(int rssi) {
+        Log.d(TAG,"onReadRemoteRssi rssi="+rssi);
+    }
+
+    private void requestPermissions() {
+        ArrayList<String> permissions=new ArrayList<String>();
+        if(checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!= PackageManager.PERMISSION_GRANTED){
+            permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!= PackageManager.PERMISSION_GRANTED){
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if(permissions.isEmpty()==false){
+            String[] strings=new String[permissions.size()];
+            permissions.toArray(strings);
+            requestPermissions(strings, REQUEST_CODE_ASK_PERMISSIONS);
+        } else {
+            startBeansDiscovery();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Log.d(TAG, "onRequestPermissionsResult: " + requestCode);
+        startBeansDiscovery();
+    }
+
+    private void startBeansDiscovery(){
+        textView.setText("Start Bluebean discovery ...");
+        Log.d(TAG,"Start Bluebean discovery ...");
+        BeanManager.getInstance().startDiscovery(this);
+    }
+
 }
